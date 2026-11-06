@@ -68,4 +68,3 @@ thingsdb.run("//stuff", "addition", {a: 4, b: 7}).then(|res| {
     res;  // response as "mpdata"
 });
 ```# module-go-mysqlendpoint
-# module-go-mysqlendpoint
