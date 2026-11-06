@@ -19,12 +19,12 @@ Optionally, you can choose a specific version by adding a `@` followed with the 
 
 Property            | Type            | Description
 ------------------- | --------------- | -----------
-thingsdb_token      | str (required)  | Token with `QUERY` + `CHANGE` privileges in at least the `@thinhsdb` scope.
-thingsdb_port       | int (optional)  | Client port of the thingsdb node. Defaults to `9200`.
-thingsdb_timeout    | int (optional)  | Timeout in seconds for thingsdb queries. Defaults to `10` seconds.
-schema_scope        | str (optional)  | Collection scope for storing the schema. Defaults to `//schema`.
-mysql_bind_address  | str (optional)  | Bind address for the MySQL server endpoint. Defaults to `0.0.0.0`.
-mysql_listen_port   | str (optional)  | Listen port for the MySQL server endpoint. Defaults to `3306`.
+`thingsdb_token`    | str (required)  | Token with `QUERY` + `CHANGE` privileges in at least the `@thinhsdb` scope.
+`thingsdb_port`     | int (optional)  | Client port of the thingsdb node. Defaults to `9200`.
+`thingsdb_timeout`  | int (optional)  | Timeout in seconds for thingsdb queries. Defaults to `10` seconds.
+`schema_scope`      | str (optional)  | Collection scope for storing the schema. Defaults to `//schema`.
+`mysql_bind_address`| str (optional)  | Bind address for the MySQL server endpoint. Defaults to `0.0.0.0`.
+`mysql_listen_port` | str (optional)  | Listen port for the MySQL server endpoint. Defaults to `3306`.
 
 
 Example configuration:
