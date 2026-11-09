@@ -43,6 +43,12 @@ var (
 	srvCancel context.CancelFunc
 )
 
+const DefaultThingsdbPort uint16 = 9200
+const DefaultThingsdbTimeout uint16 = 10
+const DefaultSchemaScope string = "//schema"
+const DefaultMysqlBindAddress string = "0.0.0.0"
+const DefaultMysqlListenPort uint16 = 3306
+
 func startOrRestartServer(bindAddr string, port int) error {
 	targetAddr := fmt.Sprintf("%s:%d", bindAddr, port)
 
@@ -98,29 +104,33 @@ type request struct {
 	Method *string `msgpack:"method"`
 }
 
+func ptr[T any](v T) *T {
+	return &v
+}
+
 func ensureConfig() error {
 	if cfg.ThingsdbToken == nil {
 		return fmt.Errorf("missing thingsdb_token")
 	}
 
 	if cfg.ThingsdbPort == nil {
-		*cfg.ThingsdbPort = 9200
+		cfg.ThingsdbPort = ptr(DefaultThingsdbPort)
 	}
 
 	if cfg.ThingsdbTimeout == nil {
-		*cfg.ThingsdbTimeout = 10
+		cfg.ThingsdbTimeout = ptr(DefaultThingsdbTimeout)
 	}
 
 	if cfg.SchemaScope == nil {
-		*cfg.SchemaScope = "//schema"
+		cfg.SchemaScope = ptr(DefaultSchemaScope)
 	}
 
 	if cfg.MysqlBindAddress == nil {
-		*cfg.MysqlBindAddress = "0.0.0.0"
+		cfg.MysqlBindAddress = ptr(DefaultMysqlBindAddress)
 	}
 
 	if cfg.MysqlListenPort == nil {
-		*cfg.MysqlListenPort = 3306
+		cfg.MysqlListenPort = ptr(DefaultMysqlListenPort)
 	}
 
 	return nil
@@ -200,6 +210,7 @@ func handleConf() {
 		onConfError(err)
 	}
 
+	onReload(room, nil)
 	timod.WriteConfOk()
 }
 

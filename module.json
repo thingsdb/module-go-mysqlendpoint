@@ -21,6 +21,7 @@
             "doc": "Returns mysql server status and schema",
             "argmap": ["method"]
         },
-        "info": "|this| this._call('info')"
+        "info": "|this| this._call('info')",
+        "reload": "|this| this._call('reload')"
     }
 }

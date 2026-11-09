@@ -10,6 +10,7 @@ import (
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
+
 	thingsdb "github.com/thingsdb/go-thingsdb"
 )
 
@@ -24,12 +25,19 @@ type GatewayState struct {
 }
 
 func newGateway() *GatewayState {
+	vars := make(map[string]interface{})
+	vars["secure_file_priv"] = "NULL"
+	if err := sql.SystemVariables.AssignValues(vars); err != nil {
+		log.Printf("failed to set secure_file_priv: %v\n", err)
+	}
+
 	provider := memory.NewDBProvider()
 
 	mySQLDb := mysql_db.CreateEmptyMySQLDb()
 	mySQLDb.AddRootAccount() // Enables authentication checks
 
 	engine := sqle.NewDefault(provider)
+
 	engine.Analyzer.Catalog.MySQLDb = mySQLDb
 
 	return &GatewayState{

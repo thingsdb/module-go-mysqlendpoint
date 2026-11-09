@@ -9,8 +9,11 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+const SchemaVersion = 1
+
 const InfoProcedure = "get_info"
 const SchemaProcedure = "get_schema"
+const SanityCheckProcedure = "sanity_check"
 
 type Schema struct {
 	SchemaVersion int     `msgpack:"schema_version"`
@@ -72,7 +75,7 @@ func mapColumnType(t string) (sql.Type, error) {
 }
 
 func setupCollection(schemaScope string) error {
-	_, err := conn.QueryRaw(schemaScope, `
+	_, err := conn.QueryRaw(schemaScope, strings.ReplaceAll(`
 		try(commit("Setup schema collection for the Mysql Endpoint module"));
 
 		new_type('Column', HID);
@@ -132,17 +135,17 @@ func setupCollection(schemaScope string) error {
 		new_procedure('get_schema', || .wrap(&{
 			schema_version: 'pint',
 			version: 'pint',
-			database: 'str,
+			database: 'str',
 			users: [{
 				username: 'str',
-				password: 'str,
+				password: 'str',
 			}],
 			tables: [{
 				name: 'str',
 				scope: 'str',
 				columns: [{
 					name: 'str',
-					type: 'ColumnType',
+					type: 'any',
 					primary: 'bool?',
 					nullable: 'bool?',
 					unsigned: 'bool?',
@@ -161,8 +164,20 @@ func setupCollection(schemaScope string) error {
 			mysql_listen_port: module.mysql_listen_port
 		});
 
+		new_procedure('sanity_check', |schema_version| {
+			assert(
+				type(root()) == 'Schema',
+				$Invalid collection root: expected type "Schema", but got "{type(root())}"$
+			);
+			assert(
+				.get('schema_version') == schema_version,
+				$Unsupported schema_version: expected {schema_version}, but found {.get('schema_version')}$
+			);
+			nil;
+		});
+
 		'DONE';
-	`, nil)
+	`, "$", "`"), nil)
 	return err
 }
 
@@ -202,18 +217,6 @@ func ensureCollection(schemaScope string) error {
 		return setupCollection(schemaScope)
 	}
 
-	_, err = conn.QueryRaw(schemaScope, strings.ReplaceAll(`
-		assert(
-			type(root()) == 'Schema',
-			$Invalid collection root: expected type "Schema", but got "{type(root())}"$
-		);
-
-		assert(
-			.get('version') == 1,
-			$Unsupported schema version: expected 1, but found {.get('version')}$
-		);
-
-		nil;
-	`, "$", "`"), nil)
+	_, err = conn.RunRaw(schemaScope, SanityCheckProcedure, SchemaVersion)
 	return err
 }
