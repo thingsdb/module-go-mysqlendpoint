@@ -4,8 +4,72 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dolthub/go-mysql-server/sql"
+	"github.com/dolthub/go-mysql-server/sql/types"
 	"github.com/vmihailenco/msgpack/v5"
 )
+
+const InfoProcedure = "get_info"
+const SchemaProcedure = "get_schema"
+
+type Schema struct {
+	SchemaVersion int     `msgpack:"schema_version"`
+	Version       int     `msgpack:"version"`
+	Database      string  `msgpack:"database"`
+	Users         []User  `msgpack:"users"`
+	Tables        []Table `msgpack:"tables"`
+}
+
+type User struct {
+	Username string `msgpack:"username"`
+	Password string `msgpack:"password"`
+}
+
+type Column struct {
+	Name     string `msgpack:"name"`
+	Type     string `msgpack:"type"`
+	Primary  bool   `msgpack:"primary"`
+	Nullable bool   `msgpack:"nullable"`
+	Unsigned bool   `msgpack:"unsigned"`
+	Comment  string `msgpack:"comment"`
+}
+
+type Select struct {
+	All    string `msgpack:"all"`
+	Filter string `msgpack:"filter"`
+	Count  string `msgpack:"count"`
+}
+
+type Table struct {
+	Name    string   `msgpack:"name"`
+	Scope   string   `msgpack:"scope"`
+	Columns []Column `msgpack:"columns"`
+	Select  Select   `msgpack:"select"`
+	Comment string   `msgpack:"comment"`
+}
+
+func mapColumnType(t string) (sql.Type, error) {
+	switch strings.ToLower(t) {
+	case "int", "integer":
+		return types.Int64, nil
+	case "uint":
+		return types.Uint64, nil
+	case "float":
+		return types.Float64, nil
+	case "str", "string", "text":
+		return types.Text, nil
+	case "bool", "boolean":
+		return types.Boolean, nil
+	case "datetime", "time":
+		return types.Datetime, nil
+	case "date":
+		return types.Date, nil
+	case "bytes", "bytearray":
+		return types.Blob, nil
+	default:
+		return nil, fmt.Errorf("unsupported column type: %s", t)
+	}
+}
 
 func setupCollection(schemaScope string) error {
 	_, err := conn.QueryRaw(schemaScope, `
@@ -37,32 +101,65 @@ func setupCollection(schemaScope string) error {
 			nullable: 'bool?',
 			unsigned: 'bool?',
 			comment: 'str?',
-		});
-		set_type('Schema', {
-			version: 'pint(ro)',
-			database: 'str',
-			users: '{User}',
-			tables: '{Table}',
-			trigger: 'room',
-		});
+		}, HID);
 		set_type('Select', {
 			all: 'str',
 			filter: 'str?',
 			count: 'str?',
-		});
+		}, HID);
 		set_type('Table', {
 			name: 'str',
 			scope: 'str',
 			columns: '[Column]',
 			select: 'Select',
 			comment: 'str?',
-		});
+		}, HID);
 		set_type('User', {
 			username: 'str',
 			password: 'str',
-		});
+		}, HID);
+		set_type('Schema', {
+			schema_version: 'pint(ro)',
+			version: 'pint',
+			database: 'str',
+			users: '{User}',
+			tables: '{Table}',
+			ev: 'room',
+		}, HID);
 
 		.to_type('Schema');
+
+		new_procedure('get_schema', || .wrap(&{
+			schema_version: 'pint',
+			version: 'pint',
+			database: 'str,
+			users: [{
+				username: 'str',
+				password: 'str,
+			}],
+			tables: [{
+				name: 'str',
+				scope: 'str',
+				columns: [{
+					name: 'str',
+					type: 'ColumnType',
+					primary: 'bool?',
+					nullable: 'bool?',
+					unsigned: 'bool?',
+					comment: 'str?',
+				}],
+				select: {
+					all: 'str',
+					filter: 'str?',
+					count: 'str?',
+				},
+				comment: 'str?',
+			}]
+		}));
+
+		new_procedure('get_info', |module| {
+			mysql_listen_port: module.mysql_listen_port
+		});
 
 		'DONE';
 	`, nil)

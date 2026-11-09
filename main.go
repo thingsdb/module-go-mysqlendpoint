@@ -20,19 +20,70 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/dolthub/go-mysql-server/server"
 	thingsdb "github.com/thingsdb/go-thingsdb"
 	timod "github.com/thingsdb/go-timod"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-var conn *thingsdb.Conn
-var cfg config
-var mux sync.RWMutex
+var (
+	conn      *thingsdb.Conn
+	room      *thingsdb.Room
+	cfg       config
+	mux       sync.RWMutex
+	NilBytes  = []byte{0xc0}
+	gateway   *GatewayState
+	srv       *server.Server
+	srvCancel context.CancelFunc
+)
+
+func startOrRestartServer(bindAddr string, port int) error {
+	targetAddr := fmt.Sprintf("%s:%d", bindAddr, port)
+
+	if srv != nil && gateway.listenAddr == targetAddr {
+		// Address didn't change; keep existing connections intact
+		return nil
+	}
+
+	// Shut down existing listener if running
+	if srv != nil {
+		log.Printf("Restarting MySQL listener from %s to %s", gateway.listenAddr, targetAddr)
+		if srvCancel != nil {
+			srvCancel()
+		}
+		_ = srv.Close()
+		srv = nil
+	}
+
+	var err error
+	srv, err = newDefaultServer(server.Config{
+		Protocol: "tcp",
+		Address:  targetAddr,
+	}, gateway.engine)
+	if err != nil {
+		return err
+	}
+
+	gateway.listenAddr = targetAddr
+
+	ctx, cancel := context.WithCancel(context.Background())
+	srvCancel = cancel
+
+	go func() {
+		log.Printf("MySQL endpoint listening on %s", targetAddr)
+		if err := srv.Start(); err != nil && ctx.Err() == nil {
+			log.Printf("MySQL server terminated: %v", err)
+		}
+	}()
+
+	return nil
+}
 
 type config struct {
 	ThingsdbToken    *string `msgpack:"thingsdb_token"`
@@ -49,7 +100,7 @@ type request struct {
 
 func ensureConfig() error {
 	if cfg.ThingsdbToken == nil {
-		return fmt.Errorf("Missing thingsdb_token")
+		return fmt.Errorf("missing thingsdb_token")
 	}
 
 	if cfg.ThingsdbPort == nil {
@@ -75,6 +126,19 @@ func ensureConfig() error {
 	return nil
 }
 
+func onConfError(err error) {
+	if conn != nil {
+		conn.Close()
+		conn = nil
+	}
+	if room != nil {
+		_ = room.Leave()
+		room = nil
+	}
+	log.Println(err)
+	timod.WriteConfErr()
+}
+
 func handleConf() {
 	mux.Lock()
 	defer mux.Unlock()
@@ -85,6 +149,11 @@ func handleConf() {
 		return
 	}
 
+	if room != nil {
+		_ = room.Leave()
+		room = nil
+	}
+
 	if conn != nil {
 		conn.Close()
 	}
@@ -93,26 +162,42 @@ func handleConf() {
 	conn.DefaultTimeout = time.Duration(*cfg.ThingsdbTimeout) * time.Second
 
 	if err := conn.Connect(); err != nil {
-		conn = nil
-		log.Println(err)
-		timod.WriteConfErr()
+		onConfError(err)
 		return
 	}
 
 	if err := conn.AuthToken(*cfg.ThingsdbToken); err != nil {
-		conn.Close()
-		conn = nil
-		log.Println(err)
-		timod.WriteConfErr()
+		onConfError(err)
 		return
 	}
 
 	if err := ensureCollection(*cfg.SchemaScope); err != nil {
-		conn.Close()
-		conn = nil
-		log.Println(err)
-		timod.WriteConfErr()
+		onConfError(err)
 		return
+	}
+
+	room = thingsdb.NewRoom(*cfg.SchemaScope, ".ev.id();")
+	room.HandleEvent(ReloadEvent, onReload)
+
+	if err := room.Join(conn, thingsdb.DefaultWait); err != nil {
+		onConfError(err)
+		return
+	}
+
+	// at this point, we have a schema collection but it may be empty (no database name set, and/or no users or tables, but it might be that all is configuresd)
+	// here, we want to set-up the "sql" server gateway:
+	// 	type GatewayState struct {
+	// 	mu            sync.RWMutex
+	// 	currentSchema *Schema
+	// 	dbProvider    *memory.DbProvider
+	// 	mysqlDb       *mysql_db.MySQLDb
+	// 	currentDb     *memory.Database
+	// }
+	// should we best keep a global instance? and create it here?
+	// init can be be: if nil -> create. try "reload", reload could work on init as well?
+
+	if err := startOrRestartServer(*cfg.MysqlBindAddress, int(*cfg.MysqlListenPort)); err != nil {
+		onConfError(err)
 	}
 
 	timod.WriteConfOk()
@@ -148,6 +233,14 @@ func onModuleReq(pkg *timod.Pkg) {
 		return
 	}
 
+	if room == nil {
+		timod.WriteEx(
+			pkg.Pid,
+			timod.ExCancelled,
+			"Room not joined, make sure you used set_module_conf() to initialze the module")
+		return
+	}
+
 	if err := ensureConfig(); err != nil {
 		timod.WriteEx(
 			pkg.Pid,
@@ -161,7 +254,7 @@ func onModuleReq(pkg *timod.Pkg) {
 		timod.WriteEx(
 			pkg.Pid,
 			timod.ExCancelled,
-			"Invalid method. Expection 'info'.")
+			"Invalid method. Expection 'info' or 'reload'.")
 		return
 	}
 
@@ -169,8 +262,14 @@ func onModuleReq(pkg *timod.Pkg) {
 		vars := map[string]any{
 			"name": "test",
 		}
-		res, err := conn.RunRaw(*cfg.SchemaScope, "info", vars)
+		res, err := conn.RunRaw(*cfg.SchemaScope, InfoProcedure, vars)
 		onResponse(pkg, res, err)
+		return
+	}
+
+	if *req.Method == "reload" {
+		err := room.Emit(ReloadEvent, nil)
+		onResponse(pkg, NilBytes, err)
 		return
 	}
 
@@ -212,6 +311,9 @@ func handler(buf *timod.Buffer, quit chan bool) {
 }
 
 func main() {
+	// Create a gateway
+	gateway = newGateway()
+
 	// Starts the module
 	timod.StartModule("thingsdb", handler)
 
