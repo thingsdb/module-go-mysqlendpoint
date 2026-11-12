@@ -1,5 +1,7 @@
 # Example MySQL connection
 
+> Requires ThingDB >= v1.11.0
+
 ## Step 1
 
 Install and configure the module (see general README.md)
