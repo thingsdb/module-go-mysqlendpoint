@@ -1,0 +1,88 @@
+//
+// Schema collection (after installing and configuring the module)
+//
+articles = Table{
+  columns: [
+    Column{
+      name: 'id',
+      nullable: false,
+      primary: true,
+      type: ColumnType{TINYTEXT},
+    },
+    Column{
+      name: 'name',
+      nullable: false,
+      primary: false,
+      type: ColumnType{TEXT},
+    },
+    Column{
+      name: 'description',
+      nullable: true,
+      primary: false,
+      type: ColumnType{TEXT},
+    },
+    Column{
+      name: 'supplier',
+      nullable: false,
+      primary: false,
+      type: ColumnType{TINYTEXT},
+      foreign_key: ForeignKey{
+        table: 'suppliers',
+        column: 'id',
+      },
+    },
+    Column{
+      name: 'price',
+      nullable: false,
+      primary: false,
+      type: ColumnType{FLOAT32},
+    },
+  ],
+  name: 'articles',
+  comment: 'Articles from stuff',
+  scope: '//stuff',
+  select: Select{
+    all: 'get_articles();',
+    count: 'get_articles().len();',
+    filter: 'get_articles().filter(closure(filter));'
+  }
+};
+suppliers = Table{
+  columns: [
+    Column{
+      name: 'id',
+      nullable: false,
+      primary: true,
+      type: ColumnType{TINYTEXT},
+    },
+    Column{
+      name: 'name',
+      nullable: false,
+      primary: false,
+      type: ColumnType{TEXT},
+    },
+    Column{
+      name: 'location',
+      nullable: true,
+      primary: false,
+      type: ColumnType{TEXT},
+    },
+  ],
+  name: 'suppliers',
+  comment: 'Suppliers from stuff',
+  scope: '//stuff',
+  select: Select{
+    all: 'get_suppliers();',
+    count: 'get_suppliers().len();',
+    filter: 'get_suppliers().filter(closure(filter));'
+  }
+};
+
+.database = 'example';
+.tables.add(articles);
+.tables.add(suppliers);
+.users.add(User{
+    username: 'iris',
+    password: 'siri',
+});
+

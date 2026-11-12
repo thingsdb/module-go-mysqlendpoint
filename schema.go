@@ -15,6 +15,11 @@ const InfoProcedure = "get_info"
 const SchemaProcedure = "get_schema"
 const SanityCheckProcedure = "sanity_check"
 
+type ForeignKey struct {
+	Table  string `json:"table"`
+	Column string `json:"column"`
+}
+
 type Schema struct {
 	SchemaVersion int     `msgpack:"schema_version"`
 	Version       int     `msgpack:"version"`
@@ -29,12 +34,12 @@ type User struct {
 }
 
 type Column struct {
-	Name     string `msgpack:"name"`
-	Type     string `msgpack:"type"`
-	Primary  bool   `msgpack:"primary"`
-	Nullable bool   `msgpack:"nullable"`
-	Unsigned bool   `msgpack:"unsigned"`
-	Comment  string `msgpack:"comment"`
+	Name       string      `msgpack:"name"`
+	Type       string      `msgpack:"type"`
+	Primary    bool        `msgpack:"primary"`
+	Nullable   bool        `msgpack:"nullable"`
+	Comment    string      `msgpack:"comment"`
+	ForeignKey *ForeignKey `msgpack:"foreign_key"`
 }
 
 type Select struct {
@@ -52,23 +57,44 @@ type Table struct {
 }
 
 func mapColumnType(t string) (sql.Type, error) {
-	switch strings.ToLower(t) {
-	case "int", "integer":
+	switch t {
+	case "Int64":
 		return types.Int64, nil
-	case "uint":
+	case "Int32":
+		return types.Int32, nil
+	case "Int16":
+		return types.Int16, nil
+	case "Int8":
+		return types.Int8, nil
+	case "Uint64":
 		return types.Uint64, nil
-	case "float":
+	case "Uint32":
+		return types.Uint32, nil
+	case "Uint16":
+		return types.Uint16, nil
+	case "Uint8":
+		return types.Uint8, nil
+	case "Float64":
 		return types.Float64, nil
-	case "str", "string", "text":
-		return types.Text, nil
-	case "bool", "boolean":
+	case "Float32":
+		return types.Float32, nil
+	case "Boolean":
 		return types.Boolean, nil
-	case "datetime", "time":
-		return types.Datetime, nil
-	case "date":
-		return types.Date, nil
-	case "bytes", "bytearray":
+	case "TinyText":
+		return types.TinyText, nil
+	case "Text":
+		return types.Text, nil
+	case "LongText":
+		return types.LongText, nil
+	case "Blob":
 		return types.Blob, nil
+	case "Datetime":
+		return types.Datetime, nil
+	case "Timestamp":
+		return types.Timestamp, nil
+	case "JSON":
+		return types.JSON, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported column type: %s", t)
 	}
@@ -78,49 +104,67 @@ func setupCollection(schemaScope string) error {
 	_, err := conn.QueryRaw(schemaScope, strings.ReplaceAll(`
 		try(commit("Setup schema collection for the Mysql Endpoint module"));
 
+		new_type('ForeignKey', HID);
 		new_type('Column', HID);
 		new_type('Schema', HID);
 		new_type('Select', HID);
 		new_type('Table', HID);
 		new_type('User', HID);
+		new_type('Info', HID);
 
-		set_enum('ColumnType', {
-			INT64: 'int64',
-			INT32: 'int32',
-			FLOAT64: 'float64',
-			STRING: 'string',
-			BYTES: 'bytes',
-			BOOL: 'bool',
-			DATETIME: 'datetime',
-			TIME: 'time',
-			DATE: 'date',
-			JSON: 'json',
+		set_type('Info', {
+			config: '&any',
+			schema: '&any',
 		});
 
+		set_enum('ColumnType', {
+			INT64: 'Int64',
+			INT32: 'Int32',
+			INT16: 'Int16',
+			INT8: 'Int8',
+			UINT64: 'Uint64',
+			UINT32: 'Uint32',
+			UINT16: 'Uint16',
+			UINT8: 'Uint8',
+			FLOAT64: 'Float64',
+			FLOAT32: 'Float32',
+			BOOLEAN: 'Boolean',
+			TINYTEXT: 'TinyText',
+			TEXT: 'Text',
+			LONGTEXT: 'LongText',
+			BLOB: 'Blob',
+			DATETIME: 'Datetime',
+			TIMESTAMP: 'Timestamp',
+			JSON: 'JSON',
+		});
+		set_type('ForeignKey', {
+			table: 'str',
+			column: 'str',
+		});
 		set_type('Column', {
 			name: 'str',
 			type: 'ColumnType',
-			primary: 'bool?',
-			nullable: 'bool?',
-			unsigned: 'bool?',
+			primary: 'bool',
+			nullable: 'bool',
+			foreign_key: 'ForeignKey?',
 			comment: 'str?',
-		}, HID);
+		});
 		set_type('Select', {
 			all: 'str',
 			filter: 'str?',
 			count: 'str?',
-		}, HID);
+		});
 		set_type('Table', {
 			name: 'str',
 			scope: 'str',
 			columns: '[Column]',
 			select: 'Select',
 			comment: 'str?',
-		}, HID);
+		});
 		set_type('User', {
 			username: 'str',
 			password: 'str',
-		}, HID);
+		});
 		set_type('Schema', {
 			schema_version: 'pint(ro)',
 			version: 'pint',
@@ -128,7 +172,7 @@ func setupCollection(schemaScope string) error {
 			users: '{User}',
 			tables: '{Table}',
 			ev: 'room',
-		}, HID);
+		});
 
 		.to_type('Schema');
 
@@ -160,9 +204,7 @@ func setupCollection(schemaScope string) error {
 			}]
 		}));
 
-		new_procedure('get_info', |module| {
-			mysql_listen_port: module.mysql_listen_port
-		});
+		new_procedure('get_info', |cfg| Info{config: cfg, schema: get_schema()}.wrap());
 
 		new_procedure('sanity_check', |schema_version| {
 			assert(
@@ -217,6 +259,6 @@ func ensureCollection(schemaScope string) error {
 		return setupCollection(schemaScope)
 	}
 
-	_, err = conn.RunRaw(schemaScope, SanityCheckProcedure, SchemaVersion)
+	_, err = conn.RunRaw(schemaScope, SanityCheckProcedure, []any{SchemaVersion})
 	return err
 }

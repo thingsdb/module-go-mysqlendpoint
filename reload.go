@@ -9,8 +9,12 @@ import (
 const ReloadEvent = "reload"
 
 func onReload(room *thingsdb.Room, args []any) {
-	err := gateway.Reload(conn, *cfg.SchemaScope)
-	if err != nil {
-		log.Printf("reload failed: %v\n", err)
-	}
+	go func() {
+		if conn := room.Conn(); conn != nil {
+			err := gateway.Reload(conn, *cfg.SchemaScope)
+			if err != nil {
+				log.Printf("reload failed: %v\n", err)
+			}
+		}
+	}()
 }

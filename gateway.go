@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	sqle "github.com/dolthub/go-mysql-server"
-	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/mysql_db"
 
@@ -17,11 +16,11 @@ import (
 type GatewayState struct {
 	mu            sync.RWMutex
 	currentSchema *Schema
-	dbProvider    *memory.DbProvider
+	dbProvider    *GatewayDatabaseProvider
 	mysqlDb       *mysql_db.MySQLDb
-	currentDb     *memory.Database
+	currentDb     *GatewayDatabase
 	engine        *sqle.Engine
-	listenAddr    string // tracks "host:port" to detect port changes
+	listenAddr    string
 }
 
 func newGateway() *GatewayState {
@@ -31,13 +30,13 @@ func newGateway() *GatewayState {
 		log.Printf("failed to set secure_file_priv: %v\n", err)
 	}
 
-	provider := memory.NewDBProvider()
+	provider := NewGatewayDatabaseProvider()
 
 	mySQLDb := mysql_db.CreateEmptyMySQLDb()
-	mySQLDb.AddRootAccount() // Enables authentication checks
+	mySQLDb.AddRootAccount()
+	mySQLDb.SetPersister(noopMySQLDbPersister{})
 
 	engine := sqle.NewDefault(provider)
-
 	engine.Analyzer.Catalog.MySQLDb = mySQLDb
 
 	return &GatewayState{
@@ -62,27 +61,16 @@ func (g *GatewayState) Reload(tiConn *thingsdb.Conn, scope string) error {
 		return nil
 	}
 
-	if g.currentDb == nil || (*g.currentDb).Name() != schema.Database {
+	if g.currentDb == nil || g.currentDb.Name() != schema.Database {
 		if g.currentDb != nil {
-			if err := g.dbProvider.DropDatabase(nil, (*g.currentDb).Name()); err != nil {
-				log.Printf("drop database failed: %v\n", err)
-			}
+			g.dbProvider.DropDatabase(g.currentDb.Name())
 		}
-		if err := g.dbProvider.CreateDatabase(nil, schema.Database); err != nil {
-			return err
-		}
-		newDb, err := g.dbProvider.Database(nil, schema.Database)
-		if err != nil {
-			return err
-		}
-		memDb, ok := newDb.(*memory.Database)
-		if !ok {
-			return fmt.Errorf("unexpected database implementation: expected *memory.Database, got %T", newDb)
-		}
-		g.currentDb = memDb
+		newDb := NewGatewayDatabase(schema.Database)
+		g.dbProvider.AddDatabase(newDb)
+		g.currentDb = newDb
 	}
 
-	g.syncTables(&schema)
+	g.syncTables(&schema, tiConn)
 	g.syncUsers(&schema)
 
 	g.currentSchema = &schema
@@ -91,21 +79,16 @@ func (g *GatewayState) Reload(tiConn *thingsdb.Conn, scope string) error {
 
 	return nil
 }
-func (g *GatewayState) syncTables(s *Schema) {
+
+func (g *GatewayState) syncTables(s *Schema, tiConn *thingsdb.Conn) {
 	if g.currentDb == nil {
 		return
 	}
 
-	ctx := sql.NewEmptyContext()
-
-	for _, tbl := range g.currentDb.Tables() {
-		if err := g.currentDb.DropTable(ctx, tbl.Name()); err != nil {
-			log.Printf("warning: drop table %s: %v", tbl.Name(), err)
-		}
-	}
+	g.currentDb.ClearTables()
 
 	for _, tblDef := range s.Tables {
-		liveTbl, err := NewLiveTable(g.currentDb, tblDef, conn)
+		liveTbl, err := NewLiveTable(g.currentDb.Name(), tblDef, tiConn)
 		if err != nil {
 			log.Printf("failed to build table '%s': %v", tblDef.Name, err)
 			continue
@@ -119,6 +102,10 @@ func (g *GatewayState) syncTables(s *Schema) {
 
 func (g *GatewayState) syncUsers(s *Schema) {
 	ctx := sql.NewEmptyContext()
+	ctx.SetClient(sql.Client{
+		User:    "root",
+		Address: "localhost",
+	})
 
 	for _, u := range s.Users {
 		user := escapeSQL(u.Username)
@@ -128,21 +115,25 @@ func (g *GatewayState) syncUsers(s *Schema) {
 			"CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED WITH mysql_native_password BY '%s';",
 			user, pass,
 		)
-		_, _, _, _ = g.engine.Query(ctx, createQuery)
+		if _, _, _, err := g.engine.Query(ctx, createQuery); err != nil {
+			log.Printf("error ensuring user %s: %v", user, err)
+		}
 
 		alterQuery := fmt.Sprintf(
 			"ALTER USER '%s'@'%%' IDENTIFIED WITH mysql_native_password BY '%s';",
 			user, pass,
 		)
 		if _, _, _, err := g.engine.Query(ctx, alterQuery); err != nil {
-			log.Printf("failed updating credentials for user %s: %v", user, err)
+			log.Printf("error updating credentials for user %s: %v", user, err)
 		}
 
 		grantQuery := fmt.Sprintf(
 			"GRANT SELECT ON `%s`.* TO '%s'@'%%';",
 			escapeSQL(s.Database), user,
 		)
-		_, _, _, _ = g.engine.Query(ctx, grantQuery)
+		if _, _, _, err := g.engine.Query(ctx, grantQuery); err != nil {
+			log.Printf("error updating privileges for user %s: %v", user, err)
+		}
 	}
 }
 

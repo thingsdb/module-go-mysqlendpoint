@@ -16,7 +16,6 @@ Optionally, you can choose a specific version by adding a `@` followed with the 
 
 ## Configuration
 
-
 Property            | Type            | Description
 ------------------- | --------------- | -----------
 `thingsdb_token`    | str (required)  | Token with `QUERY` + `CHANGE` privileges in at least the `@thinhsdb` scope.
@@ -30,6 +29,9 @@ Property            | Type            | Description
 Example configuration:
 
 ```javascript
+// Restrict usage to the @thingsdb scope; This is not required, but recommended
+set_module_scope('mysqlendpoint', '/t');
+
 set_module_conf('mysqlendpoint', {
     thingsdb_token: '98c3fzHAIwYILw7JLyJbvH',
 });
@@ -39,7 +41,8 @@ set_module_conf('mysqlendpoint', {
 
 Name              | Description
 ----------------- | -----------
-[info](#info)     | Returns info for the MySQL server and database schema.
+[info](#info)     | Returns info for the Module configuration database schema.
+[reload](#reload) | Reload the schema. Can be used after schema changes.
 
 ### info
 
@@ -51,20 +54,16 @@ Syntax: `info()`
 mysqlendpoint.info();
 ```
 
-### run
+### reload
 
-Syntax: `run(scope, name, args)`
-
-#### Arguments
-
-- `scope`: The scope of the procedure.
-- `name`: Name fot the procedure to run.
-- `args`: Optional arguments as a _list_ or _thing_ for the procedure.
+Syntax: `reload()`
 
 #### Example:
 
 ```javascript
-thingsdb.run("//stuff", "addition", {a: 4, b: 7}).then(|res| {
-    res;  // response as "mpdata"
-});
+mysqlendpoint.reload();
 ```
+
+#### Return value:
+
+`nil`

@@ -261,7 +261,7 @@ func onModuleReq(pkg *timod.Pkg) {
 	}
 
 	var req request
-	if err := msgpack.Unmarshal(pkg.Data, &req); err == nil {
+	if err := msgpack.Unmarshal(pkg.Data, &req); err != nil {
 		timod.WriteEx(
 			pkg.Pid,
 			timod.ExCancelled,
@@ -271,7 +271,7 @@ func onModuleReq(pkg *timod.Pkg) {
 
 	if *req.Method == "info" {
 		vars := map[string]any{
-			"name": "test",
+			"cfg": &cfg,
 		}
 		res, err := conn.RunRaw(*cfg.SchemaScope, InfoProcedure, vars)
 		onResponse(pkg, res, err)
@@ -287,7 +287,7 @@ func onModuleReq(pkg *timod.Pkg) {
 	timod.WriteEx(
 		pkg.Pid,
 		timod.ExCancelled,
-		"Invalid method. Expection 'info'.")
+		"Invalid method. Expection 'info' or 'reload'.")
 }
 
 func handler(buf *timod.Buffer, quit chan bool) {

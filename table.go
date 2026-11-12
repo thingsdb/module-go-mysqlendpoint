@@ -4,20 +4,131 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/thingsdb/go-thingsdb"
 )
 
 type LiveTable struct {
-	*memory.Table // provides UnderlyingTable() *memory.Table and satisfies memory.MemTable
-	scope         string
-	query         string
-	conn          *thingsdb.Conn
+	dbName     string
+	name       string
+	schema     sql.Schema
+	scope      string
+	queryAll   string
+	queryCount string
+	conn       *thingsdb.Conn
+	fks        []sql.ForeignKeyConstraint
 }
 
-func NewLiveTable(db *memory.Database, tblDef Table, conn *thingsdb.Conn) (*LiveTable, error) {
+var _ sql.Table = (*LiveTable)(nil)
+var _ sql.ForeignKeyTable = (*LiveTable)(nil)
+var _ sql.StatisticsTable = (*LiveTable)(nil)
+
+func (t *LiveTable) Name() string {
+	return t.name
+}
+
+func (t *LiveTable) String() string {
+	return t.name
+}
+
+func (t *LiveTable) Schema() sql.Schema {
+	return t.schema
+}
+
+func (t *LiveTable) Collation() sql.CollationID {
+	return sql.Collation_Default
+}
+
+// Partitions returns a single partition since ThingsDB executes the query as a single stream
+func (t *LiveTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
+	return &singlePartitionIter{done: false}, nil
+}
+
+// PartitionRows executes the live query against ThingsDB and returns the streaming RowIter
+func (t *LiveTable) PartitionRows(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
+	var rawRows [][]any
+
+	if err := t.conn.QueryInto(t.scope, t.queryAll, nil, &rawRows); err != nil {
+		return nil, fmt.Errorf("live query error on table '%s': %w", t.Name(), err)
+	}
+	return &thingsDBRowIter{
+		rows: rawRows,
+		idx:  0,
+	}, nil
+}
+
+// GetDeclaredForeignKeys implements sql.ForeignKeyTable
+func (t *LiveTable) GetDeclaredForeignKeys(ctx *sql.Context) ([]sql.ForeignKeyConstraint, error) {
+	return t.fks, nil
+}
+
+// AddForeignKey implements sql.ForeignKeyTable
+func (t *LiveTable) AddForeignKey(ctx *sql.Context, fk sql.ForeignKeyConstraint) error {
+	return fmt.Errorf("table '%s' is read-only: adding foreign keys is not supported", t.name)
+}
+
+// UpdateForeignKey implements sql.ForeignKeyTable
+func (t *LiveTable) UpdateForeignKey(ctx *sql.Context, fkName string, fk sql.ForeignKeyConstraint) error {
+	return fmt.Errorf("table '%s' is read-only: updating foreign keys is not supported", t.name)
+}
+
+// DropForeignKey implements sql.ForeignKeyTable
+func (t *LiveTable) DropForeignKey(ctx *sql.Context, fkName string) error {
+	return fmt.Errorf("table '%s' is read-only: dropping foreign keys is not supported", t.name)
+}
+
+// CreateIndexForForeignKey implements sql.ForeignKeyTable
+func (t *LiveTable) CreateIndexForForeignKey(ctx *sql.Context, idxDef sql.IndexDef) error {
+	return nil
+}
+
+// GetForeignKeyEditor implements sql.ForeignKeyTable
+func (t *LiveTable) GetForeignKeyEditor(ctx *sql.Context) sql.ForeignKeyEditor {
+	return nil
+}
+
+// GetIndexes implements sql.IndexAddressableTable (embedded by sql.ForeignKeyTable)
+func (t *LiveTable) GetIndexes(ctx *sql.Context) ([]sql.Index, error) {
+	return nil, nil
+}
+
+// GetReferencedForeignKeys implements sql.ForeignKeyTable
+func (t *LiveTable) GetReferencedForeignKeys(ctx *sql.Context) ([]sql.ForeignKeyConstraint, error) {
+	return nil, nil
+}
+
+// IndexedAccess implements sql.IndexAddressableTable (embedded by sql.ForeignKeyTable)
+func (t *LiveTable) IndexedAccess(ctx *sql.Context, lookup sql.IndexLookup) sql.IndexedTable {
+	return nil
+}
+
+// PreciseMatch implements sql.IndexAddressableTable
+func (t *LiveTable) PreciseMatch() bool {
+	return true
+}
+
+// DataLength returns the estimated size in bytes (can safely return 0).
+func (t *LiveTable) DataLength(ctx *sql.Context) (uint64, error) {
+	return 0, nil
+}
+
+// RowCount returns (count, exact, err).
+func (t *LiveTable) RowCount(ctx *sql.Context) (uint64, bool, error) {
+	if t.queryCount == "" {
+		return 0, false, nil
+	}
+
+	var count uint64
+	if err := t.conn.QueryInto(t.scope, t.queryCount, nil, &count); err != nil {
+		return 0, false, fmt.Errorf("live count query error on table '%s': %w", t.Name(), err)
+	}
+
+	return count, true, nil
+}
+
+func NewLiveTable(dbName string, tblDef Table, conn *thingsdb.Conn) (*LiveTable, error) {
 	sqlCols := make(sql.Schema, 0, len(tblDef.Columns))
+	var fks []sql.ForeignKeyConstraint
 
 	for _, col := range tblDef.Columns {
 		sqlType, err := mapColumnType(col.Type)
@@ -34,42 +145,35 @@ func NewLiveTable(db *memory.Database, tblDef Table, conn *thingsdb.Conn) (*Live
 			Comment:       col.Comment,
 			AutoIncrement: false,
 		})
+
+		if col.ForeignKey != nil && col.ForeignKey.Table != "" && col.ForeignKey.Column != "" {
+			fks = append(fks, sql.ForeignKeyConstraint{
+				Name:           fmt.Sprintf("fk_%s_%s", tblDef.Name, col.Name),
+				Database:       dbName,
+				Table:          tblDef.Name,
+				Columns:        []string{col.Name},
+				ParentDatabase: dbName,
+				ParentTable:    col.ForeignKey.Table,
+				ParentColumns:  []string{col.ForeignKey.Column},
+				OnUpdate:       sql.ForeignKeyReferentialAction_NoAction,
+				OnDelete:       sql.ForeignKeyReferentialAction_NoAction,
+			})
+		}
 	}
-
-	pkSchema := sql.NewPrimaryKeySchema(sqlCols)
-
-	// memory.NewTable creates an empty table structure without any rows
-	memTable := memory.NewTable(db, tblDef.Name, pkSchema, nil)
 
 	return &LiveTable{
-		Table: memTable,
-		scope: tblDef.Scope,
-		query: tblDef.Select.All,
-		conn:  conn,
-	}, nil
-}
-
-// Override Partitions to return our single partition token
-func (t *LiveTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
-	return &singlePartitionIter{done: false}, nil
-}
-
-// Override PartitionRows so it streams live from ThingsDB instead of memory.Table's internal store
-func (t *LiveTable) PartitionRows(ctx *sql.Context, p sql.Partition) (sql.RowIter, error) {
-	var rawRows [][]any
-
-	if err := t.conn.QueryInto(t.scope, t.query, nil, &rawRows); err != nil {
-		return nil, fmt.Errorf("live query error on table '%s': %w", t.Name(), err)
-	}
-
-	return &thingsDBRowIter{
-		rows: rawRows,
-		idx:  0,
+		dbName:     dbName,
+		name:       tblDef.Name,
+		schema:     sqlCols,
+		scope:      tblDef.Scope,
+		queryAll:   tblDef.Select.All,
+		queryCount: tblDef.Select.Count,
+		conn:       conn,
+		fks:        fks,
 	}, nil
 }
 
 // ---------------- Partition Iterator ----------------
-
 type singlePartitionIter struct {
 	done bool
 }
@@ -93,7 +197,6 @@ func (i *singlePartitionIter) Close(*sql.Context) error {
 }
 
 // ---------------- Row Iterator ----------------
-
 type thingsDBRowIter struct {
 	rows [][]any
 	idx  int

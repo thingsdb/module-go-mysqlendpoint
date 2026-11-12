@@ -1,0 +1,65 @@
+//
+// Stuff collection
+//
+new_type('Article', HID);
+new_type('Supplier', HID);
+
+set_type('Article', {
+    id: 'str',
+    name: 'str',
+    description: 'str?',
+    price: 'float',
+    supplier: 'str',
+});
+
+set_type('Supplier', {
+    id: 'str',
+    name: 'str',
+    location: 'str?',
+});
+
+mod_type('Article', 'row', ['id', 'name', 'description', 'supplier', 'price']);
+mod_type('Supplier', 'row', ['id', 'name', 'location']);
+
+.articles = [
+    Article{
+        id: 'a001',
+        name: 'Article1',
+        price: 2.5,
+        supplier: 's001',
+    },
+        Article{
+        id: 'a002',
+        name: 'Article2',
+        description: 'This is a description',
+        price: 4.0,
+        supplier: 's001',
+    },
+    Article{
+        id: 'a003',
+        name: 'Article3',
+        price: 99.1,
+        supplier: 's002',
+    },
+    Article{
+        id: 'a004',
+        name: 'Article4',
+        price: 2.8,
+        supplier: 's002',
+    },
+];
+.suppliers = [
+    Supplier{
+        id: 's001',
+        name: 'Supplier1',
+        location: 'Kyiv',
+    },
+    Supplier{
+        id: 's002',
+        name: 'Supplier2',
+        location: 'Lviv',
+    },
+];
+
+new_procedure('get_articles', || .articles.map_wrap());
+new_procedure('get_suppliers', || .suppliers.map_wrap());
