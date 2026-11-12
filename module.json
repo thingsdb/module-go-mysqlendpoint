@@ -12,7 +12,7 @@
     },
     "exposes": {
         "_call": {
-            "doc": "Returns mysql server status and schema",
+            "doc": "Use with either 'info' or 'reload' as argument.",
             "argmap": ["method"]
         },
         "info": "|this| this._call('info')",
