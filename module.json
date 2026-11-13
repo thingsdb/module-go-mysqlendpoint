@@ -1,6 +1,6 @@
 {
     "doc": "https://github.com/thingsdb/module-go-mysqlendpoint#readme",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "main": {
         "linux/amd64": "bin/mysqlendpoint_linux_amd64.bin",
         "linux/arm64": "bin/mysqlendpoint_linux_arm64.bin",

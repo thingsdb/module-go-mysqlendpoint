@@ -46,16 +46,9 @@ func (t *LiveTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
 
 // PartitionRows executes the live query against ThingsDB and returns the streaming RowIter
 func (t *LiveTable) PartitionRows(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
-	user := ctx.Client().User
-	vars := map[string]any{
-		"username": user,
-	}
-	scope := t.scope
-	if userScope, ok := userScopes.Get(user); ok && userScope != "" {
-		scope = userScope
-	}
-	if scope == "" {
-		return nil, fmt.Errorf("missing ThingsDB scope for user '%s' on table '%s': configure a scope on the user or define a fallback scope on the table", user, t.Name())
+	scope, vars, err := t.resolveQueryContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var rawRows [][]any
 	if err := t.conn.QueryInto(scope, t.queryAll, vars, &rawRows); err != nil {
@@ -127,23 +120,14 @@ func (t *LiveTable) RowCount(ctx *sql.Context) (uint64, bool, error) {
 	if t.queryCount == "" {
 		return 0, false, nil
 	}
-
-	user := ctx.Client().User
-	vars := map[string]any{
-		"username": user,
-	}
-	scope := t.scope
-	if userScope, ok := userScopes.Get(user); ok && userScope != "" {
-		scope = userScope
-	}
-	if scope == "" {
-		return 0, false, fmt.Errorf("missing ThingsDB scope for user '%s' on table '%s': configure a scope on the user or define a fallback scope on the table", user, t.Name())
+	scope, vars, err := t.resolveQueryContext(ctx)
+	if err != nil {
+		return 0, false, err
 	}
 	var count uint64
 	if err := t.conn.QueryInto(scope, t.queryCount, vars, &count); err != nil {
 		return 0, false, fmt.Errorf("live count query error on table '%s': %w", t.Name(), err)
 	}
-
 	return count, true, nil
 }
 
@@ -240,4 +224,25 @@ func (i *thingsDBRowIter) Next(ctx *sql.Context) (sql.Row, error) {
 func (i *thingsDBRowIter) Close(*sql.Context) error {
 	i.rows = nil
 	return nil
+}
+
+// ---------------- Context user & scope ----------------
+func (t *LiveTable) resolveQueryContext(ctx *sql.Context) (string, map[string]any, error) {
+	user := ctx.Client().User
+
+	scope := ""
+	if userScope, ok := userScopes.Get(user); ok && userScope != "" {
+		scope = userScope
+	}
+	if t.scope != "" {
+		scope = t.scope
+	}
+	if scope == "" {
+		return "", nil, fmt.Errorf("missing ThingsDB scope for user %q on table %q: configure a scope on the user or set a fixed scope on the table", user, t.Name())
+	}
+
+	vars := map[string]any{
+		"username": user,
+	}
+	return scope, vars, nil
 }
