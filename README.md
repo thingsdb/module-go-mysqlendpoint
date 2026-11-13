@@ -84,7 +84,7 @@ A ThingsDB `scope` can be defined on a **User**, on a **Table**, or both:
 
 ### Select Queries (`all` & `count`)
 
-Currently, the `Select` configuration supports two query definitions:
+Currently, the `Select` configuration supports two query definitions _(`filter` is not implemented yet)_:
 
 | Field | Expected Return Value | Description |
 | :--- | :--- | :--- |
