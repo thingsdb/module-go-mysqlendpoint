@@ -46,16 +46,16 @@ func (t *LiveTable) Partitions(ctx *sql.Context) (sql.PartitionIter, error) {
 
 // PartitionRows executes the live query against ThingsDB and returns the streaming RowIter
 func (t *LiveTable) PartitionRows(ctx *sql.Context, part sql.Partition) (sql.RowIter, error) {
-	client := ctx.Session.Client()
+	user := ctx.Client().User
 	vars := map[string]any{
-		"username": client.User,
+		"username": user,
 	}
 	scope := t.scope
-	if userScope, ok := userScopes.Get(client.User); ok && userScope != "" {
+	if userScope, ok := userScopes.Get(user); ok && userScope != "" {
 		scope = userScope
 	}
 	if scope == "" {
-		return nil, fmt.Errorf("missing ThingsDB scope for user '%s' on table '%s': configure a scope on the user or define a fallback scope on the table", client.User, t.Name())
+		return nil, fmt.Errorf("missing ThingsDB scope for user '%s' on table '%s': configure a scope on the user or define a fallback scope on the table", user, t.Name())
 	}
 	var rawRows [][]any
 	if err := t.conn.QueryInto(scope, t.queryAll, vars, &rawRows); err != nil {
@@ -128,16 +128,16 @@ func (t *LiveTable) RowCount(ctx *sql.Context) (uint64, bool, error) {
 		return 0, false, nil
 	}
 
-	client := ctx.Session.Client()
+	user := ctx.Client().User
 	vars := map[string]any{
-		"username": client.User,
+		"username": user,
 	}
 	scope := t.scope
-	if userScope, ok := userScopes.Get(client.User); ok && userScope != "" {
+	if userScope, ok := userScopes.Get(user); ok && userScope != "" {
 		scope = userScope
 	}
 	if scope == "" {
-		return 0, false, fmt.Errorf("missing ThingsDB scope for user '%s' on table '%s': configure a scope on the user or define a fallback scope on the table", client.User, t.Name())
+		return 0, false, fmt.Errorf("missing ThingsDB scope for user '%s' on table '%s': configure a scope on the user or define a fallback scope on the table", user, t.Name())
 	}
 	var count uint64
 	if err := t.conn.QueryInto(scope, t.queryCount, vars, &count); err != nil {
