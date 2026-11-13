@@ -107,9 +107,14 @@ func (g *GatewayState) syncUsers(s *Schema) {
 		Address: "localhost",
 	})
 
+	nextScopes := make(map[string]string, len(s.Users))
+
 	for _, u := range s.Users {
 		user := escapeSQL(u.Username)
 		pass := escapeSQL(u.Password)
+		if u.Scope != "" {
+			nextScopes[user] = u.Scope
+		}
 
 		createQuery := fmt.Sprintf(
 			"CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED WITH mysql_native_password BY '%s';",
@@ -135,6 +140,8 @@ func (g *GatewayState) syncUsers(s *Schema) {
 			log.Printf("error updating privileges for user %s: %v", user, err)
 		}
 	}
+
+	userScopes.Replace(nextScopes)
 }
 
 func escapeSQL(val string) string {

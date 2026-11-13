@@ -31,6 +31,7 @@ type Schema struct {
 type User struct {
 	Username string `msgpack:"username"`
 	Password string `msgpack:"password"`
+	Scope    string `msgpack:"scope"`
 }
 
 type Column struct {
@@ -156,7 +157,7 @@ func setupCollection(schemaScope string) error {
 		});
 		set_type('Table', {
 			name: 'str',
-			scope: 'str',
+			scope: 'str?',  // if nil, scope must be defined by user.scope
 			columns: '[Column]',
 			select: 'Select',
 			comment: 'str?',
@@ -164,6 +165,7 @@ func setupCollection(schemaScope string) error {
 		set_type('User', {
 			username: 'str',
 			password: 'str',
+			scope: 'str?',  // if set, the table.scope will be ignore
 		});
 		set_type('Schema', {
 			schema_version: 'pint(ro)',
@@ -183,10 +185,11 @@ func setupCollection(schemaScope string) error {
 			users: [{
 				username: 'str',
 				password: 'str',
+				scope: 'str?',
 			}],
 			tables: [{
 				name: 'str',
-				scope: 'str',
+				scope: 'str?',
 				columns: [{
 					name: 'str',
 					type: 'any',
