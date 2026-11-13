@@ -67,3 +67,31 @@ mysqlendpoint.reload();
 #### Return value:
 
 `nil`
+
+## Schema collection
+Once configured, this module automatically creates a **`schema`** collection in ThingsDB to define your virtual MySQL database, tables, queries, and users.
+<img width="1306" height="621" alt="image" src="https://github.com/user-attachments/assets/d167567f-9778-4a94-bc9f-833da92d1a52" />
+### Scope Resolution (Multi-Tenant & Shared Data)
+
+A ThingsDB `scope` can be defined on a **User**, on a **Table**, or both:
+
+* **Table scope takes precedence:** If a `scope` is set on a table, it overrides any user-level scope.
+* **User scope as default:** If a table's `scope` is left empty, queries automatically route to the `scope` configured for the authenticated MySQL user.
+
+> **Tip:** This precedence allows you to combine **per-user collections** (tables with no fixed scope) alongside **shared global collections** (tables pinned to a specific scope) within the same MySQL database.
+
+---
+
+### Select Queries (`all` & `count`)
+
+Currently, the `Select` configuration supports two query definitions:
+
+| Field | Expected Return Value | Description |
+| :--- | :--- | :--- |
+| **`all`** | `list` or `tuple` of rows | Each row must be a list or tuple matching the order and types of the defined table columns. |
+| **`count`** | `int` | Must return the total number of rows available for the table. |
+
+#### Dynamic Filtering with `username`
+
+Both `all` and `count` queries are executed with an injected **`username`** variable (`str`) containing the logged-in MySQL client's username. You can reference `username` directly inside your ThingsDB queries to filter rows or compute user-specific values, even when querying a shared collection.
+
