@@ -41,3 +41,5 @@ require (
 	github.com/dolthub/go-mysql-server v0.20.0
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 )
+
+replace github.com/dolthub/go-icu-regex => github.com/dolthub/go-icu-regex v0.0.0-20250327004329-6799764f2dad
