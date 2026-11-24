@@ -303,6 +303,8 @@ func handler(buf *timod.Buffer, quit chan bool) {
 }
 
 func main() {
+	log.Println("HERE!!!!!")
+
 	// Create a gateway
 	gateway = newGateway()
 

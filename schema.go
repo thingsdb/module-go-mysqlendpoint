@@ -6,6 +6,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/dolthub/go-mysql-server/sql/types"
+	thingsdb "github.com/thingsdb/go-thingsdb"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -231,7 +232,8 @@ func ensureCollection(schemaScope string) error {
 		return fmt.Errorf("no thingsdb connection")
 	}
 
-	collectionName, err := cnScope(schemaScope)
+	collectionName, err := thingsdb.CnScope(schemaScope)
+
 	if err != nil {
 		return err
 	}
