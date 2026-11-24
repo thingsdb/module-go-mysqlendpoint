@@ -1,26 +1,8 @@
-// ThingsDB module for communication with ThingsDB.
-//
-// For example:
-//
-//		// Create the module (@thingsdb scope)
-//		new_module('thingsdb', 'github.com/thingsdb/module-go-thingsdb');
-//
-//		// Configure the module
-//		set_module_conf('thingsdb', {
-//		    username: 'admin',
-//		    password: 'pass',
-//	     host: 'localhost',
-//	     default_scope: '//stuff',
-//		});
-//
-//		// Use the module
-//		thingsdb.query(".id()").then(|res| {
-//		    res;  // just return the response.
-//		});
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -28,7 +10,7 @@ import (
 
 	"github.com/dolthub/go-mysql-server/server"
 	thingsdb "github.com/thingsdb/go-thingsdb"
-	timod "github.com/thingsdb/go-timod"
+	timod "github.com/thingsdb/go-timod/v2"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -146,7 +128,7 @@ func onConfError(err error) {
 		room = nil
 	}
 	log.Println(err)
-	timod.WriteConfErr()
+	timod.WriteConfErr(err)
 }
 
 func handleConf() {
@@ -155,7 +137,7 @@ func handleConf() {
 
 	if err := ensureConfig(); err != nil {
 		log.Println(err)
-		timod.WriteConfErr()
+		timod.WriteConfErr(err)
 		return
 	}
 
@@ -301,8 +283,7 @@ func handler(buf *timod.Buffer, quit chan bool) {
 				if err == nil {
 					handleConf()
 				} else {
-					log.Println("Error: Missing or invalid configuration")
-					timod.WriteConfErr()
+					timod.WriteConfErr(errors.New("Error: Missing or invalid configuration"))
 				}
 
 			case timod.ProtoModuleReq:

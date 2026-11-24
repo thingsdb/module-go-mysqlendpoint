@@ -1,6 +1,7 @@
 {
+    "schema": 2,
     "doc": "https://github.com/thingsdb/module-go-mysqlendpoint#readme",
-    "version": "0.2.2",
+    "version": "2.0.0",
     "main": {
         "linux/amd64": "bin/mysqlendpoint_linux_amd64.bin",
         "linux/arm64": "bin/mysqlendpoint_linux_arm64.bin",
@@ -15,7 +16,7 @@
             "doc": "Use with either 'info' or 'reload' as argument.",
             "argmap": ["method"]
         },
-        "info": "|this| this._call('info')",
-        "reload": "|this| this._call('reload')"
+        "info": "|this| {'Return schema and module information.\n\nArguments:\n\tNone'; this._call('info');}",
+        "reload": "|this| {'Reload the schema collection (on all nodes).\n\nArguments:\n\tNone'; this._call('reload');}"
     }
 }
