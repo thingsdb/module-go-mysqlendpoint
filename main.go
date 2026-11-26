@@ -19,7 +19,6 @@ var (
 	room      *thingsdb.Room
 	cfg       config
 	mux       sync.RWMutex
-	NilBytes  = []byte{0xc0}
 	gateway   *GatewayState
 	srv       *server.Server
 	srvCancel context.CancelFunc
@@ -262,7 +261,7 @@ func onModuleReq(pkg *timod.Pkg) {
 
 	if *req.Method == "reload" {
 		err := room.Emit(ReloadEvent, nil)
-		onResponse(pkg, NilBytes, err)
+		onResponse(pkg, timod.NilBytes, err)
 		return
 	}
 
